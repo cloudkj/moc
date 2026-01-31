@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Mobile Game Controller - GLB Selector</title>
+    <title>Mobile Game Controller - Floor Toggle</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #2a2b2e; touch-action: none; }
+        body { margin: 0; overflow: hidden; background-color: #2a2b2e; touch-action: none; font-family: 'Segoe UI', sans-serif; }
         canvas { display: block; }
 
         /* Joystick */
@@ -24,7 +24,6 @@
             top: 20px;
             left: 50%;
             transform: translateX(-50%);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             font-weight: bold;
             color: #ffffff;
             background: rgba(0, 0, 0, 0.5);
@@ -38,14 +37,19 @@
             white-space: nowrap;
         }
 
-        /* Model Selector UI */
-        #model-selector-container {
+        /* Top Right UI Container */
+        #ui-container {
             position: absolute;
             top: 20px;
             right: 20px;
             z-index: 20;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 10px;
         }
 
+        /* Dropdown Styling */
         select {
             appearance: none;
             -webkit-appearance: none;
@@ -53,7 +57,6 @@
             border: none;
             padding: 10px 35px 10px 15px;
             border-radius: 12px;
-            font-family: 'Segoe UI', sans-serif;
             font-weight: bold;
             font-size: 1rem;
             color: #333;
@@ -63,6 +66,27 @@
             background-position: right 10px top 50%;
             background-size: 12px auto;
             outline: none;
+            cursor: pointer;
+        }
+
+        /* Checkbox Styling */
+        .toggle-container {
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 8px 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: #333;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        input[type="checkbox"] {
+            transform: scale(1.2);
+            cursor: pointer;
         }
 
         #loading-text {
@@ -93,8 +117,13 @@
     <div id="loading-text">Loading Model...</div>
     <div id="status-text">State: Idle</div>
     
-    <div id="model-selector-container">
+    <div id="ui-container">
         <select id="model-select"></select>
+        
+        <label class="toggle-container">
+            <input type="checkbox" id="floor-toggle" checked>
+            Show Floor
+        </label>
     </div>
 
     <div id="zone_joystick"></div>
@@ -108,11 +137,12 @@
         
         // ADD YOUR GLB FILES HERE
         const MODEL_LIST = [
-            { name: 'Meshy v4', url: 'model_a.glb' }, 
-            { name: 'Tripo3d + Meshy', url: 'model_b.glb' },
+            { name: 'Creature', url: '../models/starbot0_meshy_v4.glb' }, 
+            { name: 'Robot',    url: '../models/starbot0_tripo3d_3p0.glb' },
+            { name: 'Hero',     url: '../models/starbot1_meshy_v4_animated.glb' },
+            { name: 'Hero',     url: '../models/starbot2_tripo3d_meshy_v4_animated.glb' } 
         ];
 
-        // Animation Names (Try to keep consistent across models)
         const ANIM_NAMES = {
             idle: 'Idle',  
             walk: 'Walking',  
@@ -141,8 +171,17 @@
             selectEl.appendChild(option);
         });
 
+        // Event: Switch Model
         selectEl.addEventListener('change', (e) => {
             loadModel(e.target.value);
+        });
+
+        // Event: Toggle Floor
+        const floorToggle = document.getElementById('floor-toggle');
+        floorToggle.addEventListener('change', (e) => {
+            const isVisible = e.target.checked;
+            if (floor) floor.visible = isVisible;
+            if (gridHelper) gridHelper.visible = isVisible;
         });
 
         // --- SCENE SETUP ---
@@ -170,7 +209,7 @@
         dirLight.castShadow = true;
         scene.add(dirLight);
 
-        // --- FLOOR TEXTURE ---
+        // --- FLOOR & GRID ---
         function getCheckerboardTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 512;
@@ -247,7 +286,7 @@
             document.getElementById('loading-text').style.display = 'block';
             document.getElementById('loading-text').innerText = 'Loading Model...';
 
-            // 1. Cleanup Scene
+            // 1. Cleanup
             if (model) {
                 scene.remove(model);
                 model.traverse((o) => {
@@ -263,7 +302,7 @@
                 activeAction = null;
             }
 
-            // 2. Load GLB
+            // 2. Load
             loader.load(url, function (gltf) { 
                 model = gltf.scene;
                 scene.add(model);
@@ -278,7 +317,6 @@
 
                 mixer = new THREE.AnimationMixer(model);
                 
-                // --- Animation Mapping ---
                 if (gltf.animations && gltf.animations.length > 0) {
                     gltf.animations.forEach(clip => { actions[clip.name] = mixer.clipAction(clip); });
 
@@ -303,7 +341,6 @@
             });
         }
 
-        // --- INITIAL LOAD ---
         loadModel(MODEL_LIST[0].url);
 
         // --- ANIMATION SWITCHER ---
@@ -338,7 +375,8 @@
             controls.update();
             renderer.render(scene, camera);
 
-            if (model) {
+            // Floor logic (only update if floor is visible)
+            if (model && floor.visible) {
                 floorTexture.rotation = model.rotation.y;
                 gridHelper.rotation.y = model.rotation.y;
 
