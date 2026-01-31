@@ -3,16 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Animated 3D Model Viewer</title>
+    <title>3D Model Viewer with Controls</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #f0f0f0; }
+        body { margin: 0; overflow: hidden; background-color: #f0f0f0; font-family: sans-serif; }
         canvas { display: block; }
+        
+        /* Floating Control Panel */
+        #controls-container {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 30px;
+            display: flex;
+            gap: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            align-items: center;
+            opacity: 0; /* Hidden until model loads */
+            transition: opacity 0.5s;
+        }
+
+        select {
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            padding: 8px 16px;
+            border-radius: 5px;
+            border: none;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background: #0056b3; }
+
         #loading-text {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-family: sans-serif;
             font-size: 1.5rem;
             color: #333;
             pointer-events: none;
@@ -31,14 +65,26 @@
 
     <div id="loading-text">Loading Model...</div>
 
+    <div id="controls-container">
+        <select id="anim-select"></select>
+        <button id="play-btn">Pause</button>
+    </div>
+
     <script type="module">
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        // --- GLOBAL VARIABLES FOR ANIMATION ---
-        let mixer; // This will hold the animation player
-        const clock = new THREE.Clock(); // Used to track time deltas
+        // --- VARIABLES ---
+        let mixer;
+        let actions = {}; // Store all animation actions here
+        let activeAction; // The currently playing action
+        const clock = new THREE.Clock();
+
+        // --- UI ELEMENTS ---
+        const controlsContainer = document.getElementById('controls-container');
+        const animSelect = document.getElementById('anim-select');
+        const playBtn = document.getElementById('play-btn');
 
         // --- 1. SETUP SCENE ---
         const scene = new THREE.Scene();
@@ -55,7 +101,6 @@
         // --- 2. LIGHTING ---
         const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
         scene.add(ambientLight);
-
         const dirLight = new THREE.DirectionalLight(0xffffff, 2);
         dirLight.position.set(5, 10, 7.5);
         scene.add(dirLight);
@@ -63,33 +108,43 @@
         // --- 3. CONTROLS ---
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
 
-        // --- 4. LOAD MODEL & ANIMATIONS ---
+        // --- 4. LOAD MODEL ---
         const loader = new GLTFLoader();
 
-        loader.load('Meshy_AI_Meshy_Merged_Animations.glb', function (gltf) {
-
+        loader.load('Meshy_AI_Meshy_Merged_Animations.glb', function (gltf) { // <--- MAKE SURE FILENAME MATCHES
             const model = gltf.scene;
             scene.add(model);
 
-            // --- ANIMATION LOGIC STARTS HERE ---
-            // Check if the file actually has animations
-            if (gltf.animations && gltf.animations.length > 0) {
-                
-                // Create the mixer attached to this specific model
+            // --- ANIMATION SETUP ---
+            if (gltf.animations.length > 0) {
                 mixer = new THREE.AnimationMixer(model);
 
-                // Play the first animation found in the file (index 0)
-                // You can change [0] to [1], [2] etc. if there are multiple clips
-                const action = mixer.clipAction(gltf.animations[0]);
-                action.play();
-                
-                console.log(`Playing animation: ${gltf.animations[0].name}`);
-            }
-            // --- ANIMATION LOGIC ENDS HERE ---
+                // Process every animation found in the file
+                gltf.animations.forEach((clip) => {
+                    const action = mixer.clipAction(clip);
+                    actions[clip.name] = action; // Store action by name
+                    
+                    // Add option to dropdown
+                    const option = document.createElement('option');
+                    option.value = clip.name;
+                    option.text = clip.name;
+                    animSelect.appendChild(option);
+                });
 
-            // Auto-centering code
+                // Play the first animation by default
+                const firstAnimName = gltf.animations[0].name;
+                activeAction = actions[firstAnimName];
+                activeAction.play();
+
+                // Show controls
+                controlsContainer.style.opacity = '1';
+            } else {
+                // No animations found, hide controls
+                controlsContainer.style.display = 'none';
+            }
+
+            // Auto-center camera
             const box = new THREE.Box3().setFromObject(model);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
@@ -106,26 +161,46 @@
             document.getElementById('loading-text').innerText = 'Error loading model';
         });
 
-        // --- 5. RESIZE HANDLER ---
-        window.addEventListener('resize', onWindowResize, false);
-        function onWindowResize() {
+        // --- 5. UI EVENT LISTENERS ---
+        
+        // Handle switching animations (Cross-fade)
+        animSelect.addEventListener('change', (e) => {
+            const newAnimName = e.target.value;
+            const newAction = actions[newAnimName];
+
+            if (newAction !== activeAction) {
+                // Fade out old, fade in new
+                activeAction.fadeOut(0.5);
+                newAction.reset().fadeIn(0.5).play();
+                activeAction = newAction;
+                
+                // Ensure button state is correct
+                playBtn.innerText = 'Pause';
+            }
+        });
+
+        // Handle Play/Pause
+        playBtn.addEventListener('click', () => {
+            if (activeAction.paused) {
+                activeAction.paused = false;
+                playBtn.innerText = 'Pause';
+            } else {
+                activeAction.paused = true;
+                playBtn.innerText = 'Play';
+            }
+        });
+
+        // --- 6. RESIZE & LOOP ---
+        window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        }
+        });
 
-        // --- 6. ANIMATION LOOP ---
         function animate() {
             requestAnimationFrame(animate);
-
-            // Get the time passed since the last frame
             const delta = clock.getDelta();
-
-            // Update the mixer if it exists (model is loaded)
-            if (mixer) {
-                mixer.update(delta);
-            }
-
+            if (mixer) mixer.update(delta);
             controls.update();
             renderer.render(scene, camera);
         }
