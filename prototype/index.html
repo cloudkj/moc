@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Mobile Game Controller - Floor Toggle</title>
+    <title>Multiplayer Shared Space</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #2a2b2e; touch-action: none; font-family: 'Segoe UI', sans-serif; }
         canvas { display: block; }
@@ -47,47 +47,62 @@
             flex-direction: column;
             align-items: flex-end;
             gap: 10px;
+            max-width: 200px;
         }
 
-        /* Dropdown Styling */
+        /* Shared UI Styles */
+        select, .toggle-container, .connection-box {
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            color: #333;
+            font-size: 0.9rem;
+        }
+
         select {
             appearance: none;
-            -webkit-appearance: none;
-            background-color: rgba(255, 255, 255, 0.9);
             border: none;
             padding: 10px 35px 10px 15px;
-            border-radius: 12px;
             font-weight: bold;
-            font-size: 1rem;
-            color: #333;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            width: 100%;
             background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23333%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
             background-repeat: no-repeat;
             background-position: right 10px top 50%;
             background-size: 12px auto;
             outline: none;
-            cursor: pointer;
         }
 
-        /* Checkbox Styling */
         .toggle-container {
-            background-color: rgba(255, 255, 255, 0.9);
             padding: 8px 15px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 0.9rem;
-            color: #333;
             font-weight: bold;
             cursor: pointer;
+            width: fit-content;
         }
         
-        input[type="checkbox"] {
-            transform: scale(1.2);
-            cursor: pointer;
+        input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
+
+        /* Multiplayer Connection Box */
+        .connection-box {
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 100%;
+            box-sizing: border-box;
         }
+
+        .connection-header { font-weight: bold; font-size: 0.85rem; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 2px; }
+        .peer-id-display { font-family: monospace; font-size: 0.8rem; color: #555; word-break: break-all; user-select: text; }
+        
+        .connect-row { display: flex; gap: 5px; }
+        #peer-id-input { flex: 1; padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.8rem; width: 0; }
+        #connect-btn { padding: 5px 10px; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 0.8rem; cursor: pointer; }
+        #connect-btn:active { background: #0056b3; }
+
+        #conn-status { font-size: 0.75rem; color: #666; font-style: italic; text-align: right; }
 
         #loading-text {
             position: absolute;
@@ -102,6 +117,7 @@
     </style>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
     <script type="importmap">
         {
@@ -114,10 +130,20 @@
 </head>
 <body>
 
-    <div id="loading-text">Loading Model...</div>
+    <div id="loading-text">Loading Assets...</div>
     <div id="status-text">State: Idle</div>
     
     <div id="ui-container">
+        <div class="connection-box">
+            <div class="connection-header">Multiplayer Space</div>
+            <div id="my-id" class="peer-id-display">Generating ID...</div>
+            <div class="connect-row">
+                <input type="text" id="peer-id-input" placeholder="Peer ID">
+                <button id="connect-btn">Connect</button>
+            </div>
+            <div id="conn-status">Waiting...</div>
+        </div>
+
         <select id="model-select"></select>
         
         <label class="toggle-container">
@@ -134,11 +160,9 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         // --- CONFIGURATION ---
-        
-        // ADD YOUR GLB FILES HERE
         const MODEL_LIST = [
             { name: 'Starbot Animated - Meshy',     url: 'models/starbot1_meshy_v4_animated.glb' },
-            { name: 'Starbot Animated - Tripo3d + Meshy',     url: 'models/starbot2_tripo3d_meshy_v4_animated.glb' } ,
+            { name: 'Starbot Animated - Tripo3d',     url: 'models/starbot2_tripo3d_meshy_v4_animated.glb' } ,
             { name: 'Starbot - Meshy', url: 'models/starbot0_meshy_v4.glb' }, 
             { name: 'Starbot - Tripo3d',    url: 'models/starbot0_tripo3d_3p0.glb' },
             { name: 'Sprite',    url: 'models/sprite0_tripo3d_meshy_v4_animated.glb' },
@@ -146,54 +170,137 @@
             { name: 'Starbot 3',    url: 'models/starbot3_tripo3d_meshy_v4_animated.glb' }
         ];
 
-        const ANIM_NAMES = {
-            idle: 'Idle',  
-            walk: 'Walking',  
-            run:  'Running'    
-        };
-        
+        const ANIM_NAMES = { idle: 'Idle', walk: 'Walking', run: 'Running' };
         const RUN_THRESHOLD = 0.8; 
         const BACKGROUND_COLOR = 0x2a2b2e;
-        const SPEED_WALK = 0.5; 
-        const SPEED_RUN = 1.5;
+        const SPEED_WALK = 2.0; 
+        const SPEED_RUN = 5.0;
 
-        // --- VARIABLES ---
-        let mixer, model;
-        let actions = {};
-        let activeAction;
-        let currentState = 'idle'; 
+        // --- GLOBALS ---
         const clock = new THREE.Clock();
         const loader = new GLTFLoader();
+        
+        // Player Data Structure
+        // localPlayer = { mesh, mixer, actions, currentAction, url }
+        // remotePeers = { 'peerId': { mesh, mixer, actions, currentAction, targetPos, targetRot } }
+        let localPlayer = {
+            mesh: null,
+            mixer: null,
+            actions: {},
+            currentAction: null,
+            state: 'idle',
+            url: MODEL_LIST[0].url
+        };
+        
+        const remotePeers = {}; 
 
-        // --- UI POPULATION ---
-        const selectEl = document.getElementById('model-select');
-        MODEL_LIST.forEach((m) => {
-            const option = document.createElement('option');
-            option.value = m.url;
-            option.text = m.name;
-            selectEl.appendChild(option);
+        // --- PEERJS MULTIPLAYER SETUP ---
+        const peer = new Peer(); 
+        const connections = []; // Array to hold multiple connections
+
+        // 1. Peer Open
+        peer.on('open', (id) => {
+            document.getElementById('my-id').innerText = "My ID: " + id;
         });
 
-        // Event: Switch Model
-        selectEl.addEventListener('change', (e) => {
-            loadModel(e.target.value);
+        // 2. Incoming Connection
+        peer.on('connection', (conn) => {
+            setupConnection(conn);
         });
 
-        // Event: Toggle Floor
-        const floorToggle = document.getElementById('floor-toggle');
-        floorToggle.addEventListener('change', (e) => {
-            const isVisible = e.target.checked;
-            if (floor) floor.visible = isVisible;
-            if (gridHelper) gridHelper.visible = isVisible;
+        // 3. Manual Connect
+        document.getElementById('connect-btn').addEventListener('click', () => {
+            const destId = document.getElementById('peer-id-input').value;
+            if(!destId) return alert("Please enter a Peer ID");
+            const conn = peer.connect(destId);
+            setupConnection(conn);
         });
+
+        function setupConnection(conn) {
+            connections.push(conn);
+
+            conn.on('open', () => {
+                document.getElementById('conn-status').innerText = "Connected (" + connections.length + ")";
+                document.getElementById('conn-status').style.color = "lightgreen";
+
+                // Send my initial spawn info to the new peer
+                if(localPlayer.mesh) {
+                    conn.send({
+                        type: 'SPAWN',
+                        id: peer.id,
+                        url: localPlayer.url,
+                        position: localPlayer.mesh.position,
+                        rotation: localPlayer.mesh.rotation.y,
+                        state: localPlayer.state
+                    });
+                }
+            });
+
+            conn.on('data', (data) => {
+                handleRemoteData(conn.peer, data);
+            });
+
+            conn.on('close', () => {
+                // Remove peer mesh
+                removeRemotePeer(conn.peer);
+                // Remove from array
+                const index = connections.indexOf(conn);
+                if (index > -1) connections.splice(index, 1);
+                
+                document.getElementById('conn-status').innerText = "Connected (" + connections.length + ")";
+                if(connections.length === 0) {
+                     document.getElementById('conn-status').innerText = "Disconnected";
+                     document.getElementById('conn-status').style.color = "gray";
+                }
+            });
+        }
+
+        // --- DATA HANDLING ---
+        function broadcast(data) {
+            connections.forEach(conn => {
+                if(conn.open) conn.send(data);
+            });
+        }
+
+        function handleRemoteData(peerId, data) {
+            switch(data.type) {
+                case 'SPAWN': 
+                case 'MODEL_CHANGE':
+                    // Load or Reload the specific peer's model
+                    spawnRemotePlayer(peerId, data.url, data.position, data.rotation);
+                    break;
+                
+                case 'UPDATE':
+                    // Update transform and animation state
+                    const p = remotePeers[peerId];
+                    if(p && p.mesh) {
+                        // Direct update for now (could add lerp for smoothness)
+                        p.mesh.position.copy(data.position);
+                        p.mesh.rotation.y = data.rotation;
+                        
+                        if(p.state !== data.state) {
+                            p.state = data.state;
+                            switchAnimation(p, data.state);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        function removeRemotePeer(id) {
+            if(remotePeers[id]) {
+                scene.remove(remotePeers[id].mesh);
+                delete remotePeers[id];
+            }
+        }
 
         // --- SCENE SETUP ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(BACKGROUND_COLOR);
-        scene.fog = new THREE.Fog(BACKGROUND_COLOR, 10, 50);
+        scene.fog = new THREE.Fog(BACKGROUND_COLOR, 10, 60);
 
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 3, 6);
+        camera.position.set(0, 5, 10);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -208,58 +315,40 @@
         scene.add(hemiLight);
 
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-        dirLight.position.set(5, 10, 5);
+        dirLight.position.set(10, 20, 10);
         dirLight.castShadow = true;
+        dirLight.shadow.camera.top = 20;
+        dirLight.shadow.camera.bottom = -20;
+        dirLight.shadow.camera.left = -20;
+        dirLight.shadow.camera.right = 20;
         scene.add(dirLight);
 
-        // --- FLOOR & GRID ---
-        function getCheckerboardTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
-            const context = canvas.getContext('2d');
-            context.fillStyle = '#404040'; 
-            context.fillRect(0, 0, 512, 512);
-            context.fillStyle = '#505050'; 
-            context.fillRect(0, 0, 256, 256);
-            context.fillRect(256, 256, 256, 256);
-            
-            const tex = new THREE.CanvasTexture(canvas);
-            tex.wrapS = THREE.RepeatWrapping;
-            tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(20, 20); 
-            tex.anisotropy = 16;
-            tex.center.set(0.5, 0.5);
-            return tex;
-        }
+        // --- ENVIRONMENT ---
+        // Large Floor
+        const floorGeo = new THREE.PlaneGeometry(200, 200);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x404040, roughness: 0.8 });
+        
+        // Add Grid
+        const floorTexture = new THREE.TextureLoader().load('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAIklEQVQIW2NkQAKrVq36zwjjgzj//v37zaCGkUAxJDNQAQDAOS0EaZBNywAAAABJRU5ErkJggg==');
+        floorTexture.wrapS = THREE.RepeatWrapping;
+        floorTexture.wrapT = THREE.RepeatWrapping;
+        floorTexture.repeat.set(100, 100);
+        floorTexture.magFilter = THREE.NearestFilter;
+        floorMat.map = floorTexture;
 
-        const floorTexture = getCheckerboardTexture();
-        const floorGeo = new THREE.PlaneGeometry(100, 100);
-        const floorMat = new THREE.MeshStandardMaterial({ 
-            map: floorTexture, 
-            roughness: 0.8,
-            metalness: 0.1
-        });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
         scene.add(floor);
-
-        const gridHelper = new THREE.GridHelper(100, 50, 0x888888, 0x000000);
-        gridHelper.position.y = 0.01; 
-        gridHelper.material.opacity = 0.2;
-        gridHelper.material.transparent = true;
-        scene.add(gridHelper);
 
         // --- CONTROLS ---
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enablePan = false;
         controls.enableDamping = true;
         controls.minDistance = 2;
-        controls.maxDistance = 15;
-        controls.maxPolarAngle = Math.PI / 2 - 0.05;
+        controls.maxDistance = 20;
 
-        // --- JOYSTICK ---
+        // --- JOYSTICK LOGIC ---
         const joystickManager = nipplejs.create({
             zone: document.getElementById('zone_joystick'),
             mode: 'static',
@@ -267,104 +356,179 @@
             color: 'white'
         });
 
+        // Joystick Input Variables
+        let moveForward = 0;
+        let rotateAngle = 0;
+        let isMoving = false;
+
         joystickManager.on('move', function (evt, data) {
-            if (!model) return;
+            if (!localPlayer.mesh) return;
+            
+            isMoving = true;
             const angle = data.angle.radian;
+            
+            // Calculate target rotation (Joystick Up = Away from camera)
+            // We need to account for camera rotation to make controls "screen relative" or just "character relative"
+            // For simplicity in this template: Joystick Up = Character moves -Z (Forward)
+            
+            // Rotation:
+            // NippleJS 0 is Right (+X). PI/2 is Up (-Y in 2D, -Z in 3D).
+            // We want the character to rotate to face the joystick direction.
             const targetRotation = angle - Math.PI / 2; 
             
-            let diff = targetRotation - model.rotation.y;
+            // Smoothly rotate local character
+            let diff = targetRotation - localPlayer.mesh.rotation.y;
             while (diff > Math.PI) diff -= Math.PI * 2;
             while (diff < -Math.PI) diff += Math.PI * 2;
-            model.rotation.y += diff * 0.1; 
+            localPlayer.mesh.rotation.y += diff * 0.15; 
 
+            // Speed
             const force = Math.min(data.force, 1.5);
-            if (force > RUN_THRESHOLD) switchAction('run');
-            else switchAction('walk');
+            moveForward = (force > RUN_THRESHOLD) ? SPEED_RUN : SPEED_WALK;
+            
+            // State
+            const newState = (force > RUN_THRESHOLD) ? 'run' : 'walk';
+            if(localPlayer.state !== newState) {
+                localPlayer.state = newState;
+                switchAnimation(localPlayer, newState);
+            }
         });
 
-        joystickManager.on('end', () => switchAction('idle'));
-
-        // --- MODEL LOADING ---
-        function loadModel(url) {
-            document.getElementById('loading-text').style.display = 'block';
-            document.getElementById('loading-text').innerText = 'Loading Model...';
-
-            // 1. Cleanup
-            if (model) {
-                scene.remove(model);
-                model.traverse((o) => {
-                    if (o.geometry) o.geometry.dispose();
-                    if (o.material) {
-                        if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
-                        else o.material.dispose();
-                    }
-                });
-                model = null;
-                mixer = null;
-                actions = {};
-                activeAction = null;
+        joystickManager.on('end', () => {
+            isMoving = false;
+            moveForward = 0;
+            if(localPlayer.state !== 'idle') {
+                localPlayer.state = 'idle';
+                switchAnimation(localPlayer, 'idle');
             }
+        });
 
-            // 2. Load
-            loader.load(url, function (gltf) { 
-                model = gltf.scene;
+        // --- MODEL LOADING SYSTEM ---
+        
+        // 1. Load Local Player
+        function spawnLocalPlayer(url) {
+            document.getElementById('loading-text').style.display = 'block';
+            
+            if(localPlayer.mesh) scene.remove(localPlayer.mesh);
+
+            loader.load(url, (gltf) => {
+                const model = gltf.scene;
                 scene.add(model);
-                
                 model.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
-                const box = new THREE.Box3().setFromObject(model);
-                const center = box.getCenter(new THREE.Vector3());
-                model.position.x += (model.position.x - center.x);
-                model.position.y += (model.position.y - center.y); 
-                model.position.z += (model.position.z - center.z);
-
-                mixer = new THREE.AnimationMixer(model);
+                // Reset Local Object
+                localPlayer.mesh = model;
+                localPlayer.mixer = new THREE.AnimationMixer(model);
+                localPlayer.actions = {};
+                localPlayer.url = url;
                 
-                if (gltf.animations && gltf.animations.length > 0) {
-                    console.log(gltf.animations);
-                    gltf.animations.forEach(clip => { actions[clip.name] = mixer.clipAction(clip); });
+                // Keep position if re-loading
+                if(!localPlayer.position) localPlayer.position = new THREE.Vector3(0,0,0);
+                model.position.copy(localPlayer.position);
 
-                    const idleClip = actions[ANIM_NAMES.idle] || actions[gltf.animations[0]?.name];
-                    const walkClip = actions[ANIM_NAMES.walk] || actions[gltf.animations[1]?.name];
-                    const runClip  = actions[ANIM_NAMES.run]  || actions[gltf.animations[2]?.name];
-
-                    if (idleClip) actions['idle'] = idleClip;
-                    if (walkClip) actions['walk'] = walkClip;
-                    if (runClip)  actions['run']  = runClip;
-
-                    currentState = 'idle';
-                    activeAction = actions['idle'];
-                    if(activeAction) activeAction.play();
-                }
+                setupAnimations(localPlayer, gltf.animations);
+                switchAnimation(localPlayer, 'idle');
 
                 document.getElementById('loading-text').style.display = 'none';
+                
+                // Broadcast change
+                broadcast({
+                    type: 'MODEL_CHANGE',
+                    id: peer.id,
+                    url: url,
+                    position: model.position,
+                    rotation: model.rotation.y,
+                    state: 'idle'
+                });
 
-            }, undefined, function(e) {
-                console.error(e);
-                document.getElementById('loading-text').innerText = 'Error loading ' + url;
-            });
+            }, undefined, (e) => console.error(e));
         }
 
-        loadModel(MODEL_LIST[0].url);
+        // 2. Load Remote Peer
+        function spawnRemotePlayer(id, url, pos, rot) {
+            // Remove existing if any
+            if(remotePeers[id]) removeRemotePeer(id);
 
-        // --- ANIMATION SWITCHER ---
-        function switchAction(newState) {
-            if (currentState === newState) return;
-            const newAction = actions[newState];
-            const oldAction = activeAction;
-            
-            if (!newAction) return;
+            loader.load(url, (gltf) => {
+                const model = gltf.scene;
+                scene.add(model);
+                model.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
-            document.getElementById('status-text').innerText = newState;
-            
-            newAction.reset();
-            newAction.play();
-            if (oldAction) newAction.crossFadeFrom(oldAction, 0.2, true);
+                // Init Remote Object
+                const p = {
+                    id: id,
+                    mesh: model,
+                    mixer: new THREE.AnimationMixer(model),
+                    actions: {},
+                    state: 'idle'
+                };
+                
+                // Set Transform
+                if(pos) model.position.copy(pos);
+                if(rot) model.rotation.y = rot;
 
-            activeAction = newAction;
-            currentState = newState;
+                setupAnimations(p, gltf.animations);
+                switchAnimation(p, 'idle');
+
+                remotePeers[id] = p;
+
+            }, undefined, (e) => console.error("Remote load fail", e));
         }
 
+        // Helper: Animation Setup
+        function setupAnimations(playerObj, animations) {
+            if(animations && animations.length > 0) {
+                animations.forEach(clip => { 
+                    playerObj.actions[clip.name] = playerObj.mixer.clipAction(clip); 
+                });
+
+                // Map standard names
+                const idle = playerObj.actions[ANIM_NAMES.idle] || playerObj.actions[animations[0]?.name];
+                const walk = playerObj.actions[ANIM_NAMES.walk] || playerObj.actions[animations[1]?.name];
+                const run =  playerObj.actions[ANIM_NAMES.run]  || playerObj.actions[animations[2]?.name];
+
+                if(idle) playerObj.actions['idle'] = idle;
+                if(walk) playerObj.actions['walk'] = walk;
+                if(run)  playerObj.actions['run'] = run;
+            }
+        }
+
+        // Helper: Switch Animation
+        function switchAnimation(playerObj, name) {
+            const newAction = playerObj.actions[name];
+            const oldAction = playerObj.currentAction;
+            if(!newAction || newAction === oldAction) return;
+
+            newAction.reset().play();
+            if(oldAction) newAction.crossFadeFrom(oldAction, 0.2, true);
+            playerObj.currentAction = newAction;
+        }
+
+        // --- UI EVENTS ---
+        
+        // Model Selector (For Local Player)
+        const selectEl = document.getElementById('model-select');
+        MODEL_LIST.forEach((m) => {
+            const option = document.createElement('option');
+            option.value = m.url;
+            option.text = m.name;
+            selectEl.appendChild(option);
+        });
+
+        selectEl.addEventListener('change', (e) => {
+            spawnLocalPlayer(e.target.value);
+        });
+
+        // Floor Toggle
+        document.getElementById('floor-toggle').addEventListener('change', (e) => {
+            floor.visible = e.target.checked;
+        });
+
+        // Initial Spawn
+        spawnLocalPlayer(MODEL_LIST[0].url);
+
+
+        // --- MAIN LOOP ---
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -375,21 +539,46 @@
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
 
-            if (mixer) mixer.update(delta);
+            // 1. Update Local Player Logic
+            if(localPlayer.mesh && localPlayer.mixer) {
+                localPlayer.mixer.update(delta);
+                
+                if(isMoving) {
+                    // Move in direction of rotation
+                    const speed = moveForward * delta;
+                    localPlayer.mesh.translateZ(speed); // Moves along local Z (Forward)
+                    
+                    // Camera Follow
+                    // Simple offset logic: Camera maintains relative distance
+                    const relativeOffset = new THREE.Vector3(0, 5, -10); // Behind and up
+                    // We actually want a strict 3rd person follow usually, but for simple tests
+                    // let's just move camera position to match player position delta
+                    // Or simply:
+                    camera.position.x += (localPlayer.mesh.position.x - camera.position.x + 0); // Smooth follow X
+                    camera.position.z += (localPlayer.mesh.position.z - camera.position.z + 10); // Maintain +10 Z offset
+                    // Keep Y fixed or smooth
+                    
+                    // Broadcast Update
+                    broadcast({
+                        type: 'UPDATE',
+                        position: localPlayer.mesh.position,
+                        rotation: localPlayer.mesh.rotation.y,
+                        state: localPlayer.state
+                    });
+                }
+                
+                // Camera orbit target update
+                controls.target.copy(localPlayer.mesh.position);
+                controls.target.y += 1; // Look at head
+            }
+
+            // 2. Update Remote Peers
+            Object.values(remotePeers).forEach(p => {
+                if(p.mixer) p.mixer.update(delta);
+            });
+
             controls.update();
             renderer.render(scene, camera);
-
-            // Floor logic (only update if floor is visible)
-            if (model && floor.visible) {
-                floorTexture.rotation = model.rotation.y;
-                gridHelper.rotation.y = model.rotation.y;
-
-                let currentScrollSpeed = 0;
-                if (currentState === 'walk') currentScrollSpeed = SPEED_WALK;
-                else if (currentState === 'run') currentScrollSpeed = SPEED_RUN;
-                
-                floorTexture.offset.y -= currentScrollSpeed * delta;
-            }
         }
 
         animate();
