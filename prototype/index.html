@@ -95,7 +95,7 @@
         }
 
         .connection-header { font-weight: bold; font-size: 0.85rem; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 2px; }
-        .peer-id-display { font-family: monospace; font-size: 0.8rem; color: #555; word-break: break-all; user-select: text; }
+        .peer-id-display { font-family: monospace; font-size: 0.9rem; color: #0066cc; word-break: break-all; user-select: text; text-align: center; margin: 5px 0; }
         
         .connect-row { display: flex; gap: 5px; }
         #peer-id-input { flex: 1; padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.8rem; width: 0; }
@@ -136,9 +136,9 @@
     <div id="ui-container">
         <div class="connection-box">
             <div class="connection-header">Multiplayer Space</div>
-            <div id="my-id" class="peer-id-display">Generating ID...</div>
+            <div id="my-id" class="peer-id-display">Generating...</div>
             <div class="connect-row">
-                <input type="text" id="peer-id-input" placeholder="Peer ID">
+                <input type="text" id="peer-id-input" placeholder="Enter Friend's ID">
                 <button id="connect-btn">Connect</button>
             </div>
             <div id="conn-status">Waiting...</div>
@@ -180,9 +180,7 @@
         const clock = new THREE.Clock();
         const loader = new GLTFLoader();
         
-        // Player Data Structure
-        // localPlayer = { mesh, mixer, actions, currentAction, url }
-        // remotePeers = { 'peerId': { mesh, mixer, actions, currentAction, targetPos, targetRot } }
+        // Player Data
         let localPlayer = {
             mesh: null,
             mixer: null,
@@ -194,13 +192,26 @@
         
         const remotePeers = {}; 
 
-        // --- PEERJS MULTIPLAYER SETUP ---
-        const peer = new Peer(); 
-        const connections = []; // Array to hold multiple connections
+        // --- ID GENERATION ---
+        function generateReadableId() {
+            const adjs = ['super', 'cool', 'happy', 'fast', 'brave', 'calm', 'swift', 'tiny', 'giant', 'shiny', 'green', 'blue', 'red', 'neon', 'cyber'];
+            const nouns = ['cat', 'dog', 'fox', 'bot', 'hero', 'star', 'moon', 'wolf', 'bear', 'bird', 'fish', 'hawk', 'dash', 'pixel', 'byte'];
+            const adj = adjs[Math.floor(Math.random() * adjs.length)];
+            const noun = nouns[Math.floor(Math.random() * nouns.length)];
+            const num = Math.floor(Math.random() * 1000);
+            return `${adj}-${noun}-${num}`;
+        }
+
+        const myPeerId = generateReadableId();
+
+        // --- PEERJS SETUP ---
+        // Pass the generated ID to the Peer constructor
+        const peer = new Peer(myPeerId); 
+        const connections = []; 
 
         // 1. Peer Open
         peer.on('open', (id) => {
-            document.getElementById('my-id').innerText = "My ID: " + id;
+            document.getElementById('my-id').innerText = id; // Show Clean ID
         });
 
         // 2. Incoming Connection
@@ -210,7 +221,7 @@
 
         // 3. Manual Connect
         document.getElementById('connect-btn').addEventListener('click', () => {
-            const destId = document.getElementById('peer-id-input').value;
+            const destId = document.getElementById('peer-id-input').value.trim();
             if(!destId) return alert("Please enter a Peer ID");
             const conn = peer.connect(destId);
             setupConnection(conn);
@@ -223,7 +234,7 @@
                 document.getElementById('conn-status').innerText = "Connected (" + connections.length + ")";
                 document.getElementById('conn-status').style.color = "lightgreen";
 
-                // Send my initial spawn info to the new peer
+                // Send my initial spawn info
                 if(localPlayer.mesh) {
                     conn.send({
                         type: 'SPAWN',
@@ -241,9 +252,7 @@
             });
 
             conn.on('close', () => {
-                // Remove peer mesh
                 removeRemotePeer(conn.peer);
-                // Remove from array
                 const index = connections.indexOf(conn);
                 if (index > -1) connections.splice(index, 1);
                 
@@ -266,18 +275,14 @@
             switch(data.type) {
                 case 'SPAWN': 
                 case 'MODEL_CHANGE':
-                    // Load or Reload the specific peer's model
                     spawnRemotePlayer(peerId, data.url, data.position, data.rotation);
                     break;
                 
                 case 'UPDATE':
-                    // Update transform and animation state
                     const p = remotePeers[peerId];
                     if(p && p.mesh) {
-                        // Direct update for now (could add lerp for smoothness)
                         p.mesh.position.copy(data.position);
                         p.mesh.rotation.y = data.rotation;
-                        
                         if(p.state !== data.state) {
                             p.state = data.state;
                             switchAnimation(p, data.state);
@@ -324,11 +329,9 @@
         scene.add(dirLight);
 
         // --- ENVIRONMENT ---
-        // Large Floor
         const floorGeo = new THREE.PlaneGeometry(200, 200);
         const floorMat = new THREE.MeshStandardMaterial({ color: 0x404040, roughness: 0.8 });
         
-        // Add Grid
         const floorTexture = new THREE.TextureLoader().load('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAIklEQVQIW2NkQAKrVq36zwjjgzj//v37zaCGkUAxJDNQAQDAOS0EaZBNywAAAABJRU5ErkJggg==');
         floorTexture.wrapS = THREE.RepeatWrapping;
         floorTexture.wrapT = THREE.RepeatWrapping;
@@ -356,9 +359,7 @@
             color: 'white'
         });
 
-        // Joystick Input Variables
         let moveForward = 0;
-        let rotateAngle = 0;
         let isMoving = false;
 
         joystickManager.on('move', function (evt, data) {
@@ -366,27 +367,16 @@
             
             isMoving = true;
             const angle = data.angle.radian;
-            
-            // Calculate target rotation (Joystick Up = Away from camera)
-            // We need to account for camera rotation to make controls "screen relative" or just "character relative"
-            // For simplicity in this template: Joystick Up = Character moves -Z (Forward)
-            
-            // Rotation:
-            // NippleJS 0 is Right (+X). PI/2 is Up (-Y in 2D, -Z in 3D).
-            // We want the character to rotate to face the joystick direction.
             const targetRotation = angle - Math.PI / 2; 
             
-            // Smoothly rotate local character
             let diff = targetRotation - localPlayer.mesh.rotation.y;
             while (diff > Math.PI) diff -= Math.PI * 2;
             while (diff < -Math.PI) diff += Math.PI * 2;
             localPlayer.mesh.rotation.y += diff * 0.15; 
 
-            // Speed
             const force = Math.min(data.force, 1.5);
             moveForward = (force > RUN_THRESHOLD) ? SPEED_RUN : SPEED_WALK;
             
-            // State
             const newState = (force > RUN_THRESHOLD) ? 'run' : 'walk';
             if(localPlayer.state !== newState) {
                 localPlayer.state = newState;
@@ -403,12 +393,9 @@
             }
         });
 
-        // --- MODEL LOADING SYSTEM ---
-        
-        // 1. Load Local Player
+        // --- MODEL LOADING ---
         function spawnLocalPlayer(url) {
             document.getElementById('loading-text').style.display = 'block';
-            
             if(localPlayer.mesh) scene.remove(localPlayer.mesh);
 
             loader.load(url, (gltf) => {
@@ -416,13 +403,11 @@
                 scene.add(model);
                 model.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
-                // Reset Local Object
                 localPlayer.mesh = model;
                 localPlayer.mixer = new THREE.AnimationMixer(model);
                 localPlayer.actions = {};
                 localPlayer.url = url;
                 
-                // Keep position if re-loading
                 if(!localPlayer.position) localPlayer.position = new THREE.Vector3(0,0,0);
                 model.position.copy(localPlayer.position);
 
@@ -431,7 +416,6 @@
 
                 document.getElementById('loading-text').style.display = 'none';
                 
-                // Broadcast change
                 broadcast({
                     type: 'MODEL_CHANGE',
                     id: peer.id,
@@ -444,9 +428,7 @@
             }, undefined, (e) => console.error(e));
         }
 
-        // 2. Load Remote Peer
         function spawnRemotePlayer(id, url, pos, rot) {
-            // Remove existing if any
             if(remotePeers[id]) removeRemotePeer(id);
 
             loader.load(url, (gltf) => {
@@ -454,7 +436,6 @@
                 scene.add(model);
                 model.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
-                // Init Remote Object
                 const p = {
                     id: id,
                     mesh: model,
@@ -463,7 +444,6 @@
                     state: 'idle'
                 };
                 
-                // Set Transform
                 if(pos) model.position.copy(pos);
                 if(rot) model.rotation.y = rot;
 
@@ -471,18 +451,14 @@
                 switchAnimation(p, 'idle');
 
                 remotePeers[id] = p;
-
-            }, undefined, (e) => console.error("Remote load fail", e));
+            }, undefined, (e) => console.error(e));
         }
 
-        // Helper: Animation Setup
         function setupAnimations(playerObj, animations) {
             if(animations && animations.length > 0) {
                 animations.forEach(clip => { 
                     playerObj.actions[clip.name] = playerObj.mixer.clipAction(clip); 
                 });
-
-                // Map standard names
                 const idle = playerObj.actions[ANIM_NAMES.idle] || playerObj.actions[animations[0]?.name];
                 const walk = playerObj.actions[ANIM_NAMES.walk] || playerObj.actions[animations[1]?.name];
                 const run =  playerObj.actions[ANIM_NAMES.run]  || playerObj.actions[animations[2]?.name];
@@ -493,20 +469,16 @@
             }
         }
 
-        // Helper: Switch Animation
         function switchAnimation(playerObj, name) {
             const newAction = playerObj.actions[name];
             const oldAction = playerObj.currentAction;
             if(!newAction || newAction === oldAction) return;
-
             newAction.reset().play();
             if(oldAction) newAction.crossFadeFrom(oldAction, 0.2, true);
             playerObj.currentAction = newAction;
         }
 
         // --- UI EVENTS ---
-        
-        // Model Selector (For Local Player)
         const selectEl = document.getElementById('model-select');
         MODEL_LIST.forEach((m) => {
             const option = document.createElement('option');
@@ -519,7 +491,6 @@
             spawnLocalPlayer(e.target.value);
         });
 
-        // Floor Toggle
         document.getElementById('floor-toggle').addEventListener('change', (e) => {
             floor.visible = e.target.checked;
         });
@@ -527,8 +498,7 @@
         // Initial Spawn
         spawnLocalPlayer(MODEL_LIST[0].url);
 
-
-        // --- MAIN LOOP ---
+        // --- ANIMATION LOOP ---
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -539,26 +509,16 @@
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
 
-            // 1. Update Local Player Logic
             if(localPlayer.mesh && localPlayer.mixer) {
                 localPlayer.mixer.update(delta);
                 
                 if(isMoving) {
-                    // Move in direction of rotation
                     const speed = moveForward * delta;
-                    localPlayer.mesh.translateZ(speed); // Moves along local Z (Forward)
+                    localPlayer.mesh.translateZ(speed); 
                     
-                    // Camera Follow
-                    // Simple offset logic: Camera maintains relative distance
-                    const relativeOffset = new THREE.Vector3(0, 5, -10); // Behind and up
-                    // We actually want a strict 3rd person follow usually, but for simple tests
-                    // let's just move camera position to match player position delta
-                    // Or simply:
-                    camera.position.x += (localPlayer.mesh.position.x - camera.position.x + 0); // Smooth follow X
-                    camera.position.z += (localPlayer.mesh.position.z - camera.position.z + 10); // Maintain +10 Z offset
-                    // Keep Y fixed or smooth
+                    camera.position.x += (localPlayer.mesh.position.x - camera.position.x + 0);
+                    camera.position.z += (localPlayer.mesh.position.z - camera.position.z + 10);
                     
-                    // Broadcast Update
                     broadcast({
                         type: 'UPDATE',
                         position: localPlayer.mesh.position,
@@ -566,13 +526,10 @@
                         state: localPlayer.state
                     });
                 }
-                
-                // Camera orbit target update
                 controls.target.copy(localPlayer.mesh.position);
-                controls.target.y += 1; // Look at head
+                controls.target.y += 1; 
             }
 
-            // 2. Update Remote Peers
             Object.values(remotePeers).forEach(p => {
                 if(p.mixer) p.mixer.update(delta);
             });
